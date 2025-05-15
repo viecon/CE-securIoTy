@@ -115,34 +115,7 @@ void loop() {
   }
   prev_state = curr_state;
 }
-size_t hex_string_to_bytes(const char *hex_str, uint8_t *byte_array, size_t max_bytes) {
-    size_t hex_len = strlen(hex_str);
-    if (hex_len % 2 != 0) { // 十六進制字符串長度必須是偶數
-        Serial.println("Error: Hex string length must be even.");
-        return 0;
-    }
-    size_t byte_len = hex_len / 2;
-    if (byte_len > max_bytes) {
-        Serial.printf("Error: Hex string too long for buffer. Max %d bytes, got %d bytes.\n", max_bytes, byte_len);
-        return 0;
-    }
 
-    for (size_t i = 0; i < byte_len; i++) {
-        char hex_pair[3];
-        hex_pair[0] = hex_str[i * 2];
-        hex_pair[1] = hex_str[i * 2 + 1];
-        hex_pair[2] = '\0';
-        long val = strtol(hex_pair, NULL, 16);
-        if (val == 0 && hex_pair[0] != '0' && hex_pair[1] != '0') { 
-            if (errno == ERANGE || errno == EINVAL) {
-                Serial.printf("Error: Invalid hex character in string: %s\n", hex_pair);
-                return 0;
-            }
-        }
-        byte_array[i] = (uint8_t)val;
-    }
-    return byte_len;
-}
 // --- 主流程函數 ---
 String runSecureDataRetrieval() {
   Serial.println("\n--- Starting Secure Data Retrieval Process (HTTP) ---");
@@ -513,30 +486,6 @@ bool performRegistration(const String& uuid, const String& passphrase,
 
       Serial.print("Received Hex N: "); Serial.println(hex_n_str);
       Serial.print("Received Hex E: "); Serial.println(hex_e_str);
-
-      n_len_out = hex_string_to_bytes(hex_n_str.c_str(), n_out_bytes, max_n_len);
-      if (n_len_out == 0 && hex_n_str.length() > 0) { // 轉換失敗
-        Serial.println("Failed to convert hex N to bytes.");
-        http.end();
-        return false;
-      }
-
-      e_len_out = hex_string_to_bytes(hex_e_str.c_str(), e_out_bytes, max_e_len);
-       if (e_len_out == 0 && hex_e_str.length() > 0) { // 轉換失敗
-        Serial.println("Failed to convert hex E to bytes.");
-        http.end();
-        return false;
-      }
-      
-      // 如果 e_len_out 為 0 且 hex_e_str 為空，也可能是有問題的，取決於e的預期
-      // 通常 e 很短，例如 0x010001 (65537)，十六進制是 "10001"
-
-      Serial.printf("Converted N bytes (len %d): ", n_len_out);
-      for(size_t i=0; i<n_len_out; ++i) Serial.printf("%02X ", n_out_bytes[i]);
-      Serial.println();
-      Serial.printf("Converted E bytes (len %d): ", e_len_out);
-      for(size_t i=0; i<e_len_out; ++i) Serial.printf("%02X ", e_out_bytes[i]);
-      Serial.println();
 
       http.end();
       return true;
