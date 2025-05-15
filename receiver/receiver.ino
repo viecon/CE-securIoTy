@@ -42,6 +42,8 @@ String userPassphrase = "VieconIsGay"; // 你的通關密語
 String authToken = "";
 String encryptedSenderKey_base64 = ""; // 從資料伺服器獲取的加密的送方金鑰 (Base64)
 String encryptedFile_base64 = "";    // 從資料伺服器獲取的加密的檔案 (Base64)
+String n_base64="";
+String e_base64="";
 
 // AES 加密/解密相關 (假設 AES-256-GCM)
 #define AES_KEY_SIZE 256
@@ -61,9 +63,10 @@ const char *personalization = "my-aes-gcm-app"; // 個性化字符串
 bool connectToWiFi();
 bool initializeRandomGenerator();
 bool getAuthTokenFromKMS(const String& uuid, const String& passphrase, String& token);
-bool fetchDataFromServer(const String& token, String& encKeyBase64, String& encFileBase64); // 假設伺服器返回的 encryptedFile_base64 包含 IV+Ciphertext+Tag
+bool fetchDataFromServer(const String& uuid, const String& token, String& encKeyBase64, String& encFileBase64); // 假設伺服器返回的 encryptedFile_base64 包含 IV+Ciphertext+Tag
 bool getDecryptedSenderKeyFromKMS(const String& token, const String& uuid, const String& passphrase, const String& encryptedKeyBase64, uint8_t* decryptedKey, size_t& keyLength);
 bool decryptFileAES_GCM(const uint8_t* key, size_t keyLen, const String& encryptedFileWithIvTagBase64, String& decryptedContent);
+bool performRegistration(const String& uuid, const String& passphrase, String& n_out_base64, String& e_out_base64);
 void clearSensitiveData();
 
 // --- Arduino 標準函數 ---
@@ -72,7 +75,7 @@ void setup() {
   while (!Serial);
   pinMode(led_pin,OUTPUT);
   Serial.println("Initializing (HTTP, AES with mbedtls)...");
-
+  
   if (!connectToWiFi()) {
     Serial.println("Failed to connect to WiFi. Halting.");
     while (true);
@@ -96,14 +99,17 @@ void loop() {
 // --- 主流程函數 ---
 void runSecureDataRetrieval() {
   Serial.println("\n--- Starting Secure Data Retrieval Process (HTTP) ---");
-
+  if(!performRegistration(userUUID,userPassphrase,n_base64,e_base64)){
+    Serial.println("Failed to registration");
+    return;
+  }
   if (!getAuthTokenFromKMS(userUUID, userPassphrase, authToken)) {
     Serial.println("Failed to get Auth Token from KMS.");
     return;
   }
   Serial.print("Auth Token received: "); Serial.println(authToken);
 
-  if (!fetchDataFromServer(authToken, encryptedSenderKey_base64, encryptedFile_base64)) {
+  if (!fetchDataFromServer(userUUID, authToken, encryptedSenderKey_base64, encryptedFile_base64)) {
     Serial.println("Failed to fetch data from server.");
     return;
   }
@@ -223,7 +229,7 @@ bool getAuthTokenFromKMS(const String& uuid, const String& passphrase, String& t
   return false;
 }
 
-bool fetchDataFromServer(const String& token, String& encKeyBase64, String& encFileBase64) {
+bool fetchDataFromServer(const String& uuid, const String& token, String& encKeyBase64, String& encFileBase64) {
   if (WiFi.status() != WL_CONNECTED || token.isEmpty()) return false;
   HTTPClient http;
   String serverPath = "http://" + String(dataServerAddress) + ":" + String(dataPort) + String(dataFetchEndpoint);
@@ -235,7 +241,7 @@ bool fetchDataFromServer(const String& token, String& encKeyBase64, String& encF
 
   DynamicJsonDocument doc(256); // 調整 JSON 文檔大小
   doc["uuid"] = uuid;
-  doc["token"] = token
+  doc["token"] = token;
   String requestBody;
   serializeJson(doc, requestBody);
 
@@ -418,6 +424,58 @@ bool decryptFileAES_GCM(const uint8_t* key, size_t keyLen, const String& encrypt
   return (ret == 0);
 }
 
+
+bool performRegistration(const String& uuid, const String& passphrase, String& n_out_base64, String& e_out_base64) {
+  if (WiFi.status() != WL_CONNECTED) return false;
+
+  HTTPClient http;
+  // 假設 kmsRegistration 端點也是 HTTP (不安全)
+  String serverPath = "http://" + String(kmsServerAddress) + ":" + String(kmsPort) + String(kmsRegistration);
+  Serial.print("KMS Registration URL: "); Serial.println(serverPath);
+
+  if (!http.begin(serverPath)) {
+      Serial.println("HTTPClient.begin (KMS Registration) failed");
+      return false;
+  }
+  http.addHeader("Content-Type", "application/json");
+
+  DynamicJsonDocument doc(256);
+  doc["uuid"] = uuid;
+  doc["passphrase"] = passphrase; // 假設註冊也需要通關密語
+  String requestBody;
+  serializeJson(doc, requestBody);
+
+  Serial.print("KMS Registration Request: "); Serial.println(requestBody);
+  int httpResponseCode = http.POST(requestBody); // 假設註冊是 POST
+
+  if (httpResponseCode == HTTP_CODE_OK || httpResponseCode == HTTP_CODE_CREATED) { // 註冊成功可能是 200 或 201
+    String payload = http.getString();
+    Serial.print("KMS Registration Response: "); Serial.println(payload);
+    DynamicJsonDocument responseDoc(512); // n 可能比較長，調整大小
+    DeserializationError error = deserializeJson(responseDoc, payload);
+    if (error) {
+      Serial.print("deserializeJson() failed for registration: ");
+      Serial.println(error.c_str());
+      http.end();
+      return false;
+    }
+    if (responseDoc.containsKey("n") && responseDoc.containsKey("e")) {
+      n_out_base64 = responseDoc["n"].as<String>();
+      e_out_base64 = responseDoc["e"].as<String>();
+      http.end();
+      return true;
+    } else {
+      Serial.println("Public key 'n' or 'e' not found in KMS registration response.");
+    }
+  } else {
+    Serial.print("KMS Registration Error code: ");
+    Serial.println(httpResponseCode);
+    String payload = http.getString();
+    Serial.println("Error payload: " + payload);
+  }
+  http.end();
+  return false;
+}
 
 void clearSensitiveData() {
   Serial.println("Clearing sensitive data from memory (HTTP)...");
