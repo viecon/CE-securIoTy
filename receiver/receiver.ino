@@ -162,7 +162,7 @@ void handleRoot() {
             apiStatusElement.textContent = 'File list loaded successfully.';
             selectElement.disabled = false;
           } else {
-            const message = data.message || 'No files found for this UUID or API returned an empty list.';
+            const message = data.message || 'No files found for this UUID, API returned an empty list.';
             selectElement.innerHTML = `<option value="" disabled selected>${message}</option>`;
             apiStatusElement.textContent = message;
             selectElement.disabled = true;
