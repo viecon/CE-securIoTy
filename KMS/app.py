@@ -15,11 +15,6 @@ passphrases = {}
 
 valid_token = set()
 
-@app.route('/api/public_key/<uuid>', methods=['GET'])
-def get_public_key(uuid):
-    if uuid not in public_keys:
-        return jsonify({"error": "Public key not found"}), 404
-    return jsonify({"public_key": public_keys[uuid]})
 
 @app.route('/api/registration', methods=['POST'])
 def register():
