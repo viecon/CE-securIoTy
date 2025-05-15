@@ -259,7 +259,7 @@ void loop() {
   server.handleClient();
   curr_state = digitalRead(btn_pin);
   if(curr_state==LOW && prev_state == HIGH){
-    
+    SendAndFlash();
   }
   prev_state = curr_state;
 }
