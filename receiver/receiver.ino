@@ -21,6 +21,7 @@
 #include <WiFi.h>         // 或者 ESP8266WiFi.h
 #include <HTTPClient.h>   // 或者 ESP8266HTTPClient.h
 #include <ArduinoJson.h>  // 用於解析和生成 JSON
+#include <WebServer.h>
 
 // --- 全域變數和常量 ---
 const char* ssid = "ED417C";
@@ -35,10 +36,10 @@ const char* kmsDecryptEndpoint = "/api/decrypt";
 const char* dataServerAddress = "192.168.50.57"; // 資料伺服器地址
 const int dataPort = 8080;
 const char* dataFetchEndpoint = "/morsecode/get"; // 假設獲取資料的端點
+const char* dataGetListEndpoint = "/getList";
 
 String userUUID = "godempty";         // 你的用戶 ID
 String userPassphrase = "114514"; // 你的通關密語
-
 
 String authToken = "";
 String encryptedSenderKey_base64 = ""; // 從資料伺服器獲取的加密的送方金鑰 (Base64)
@@ -47,6 +48,12 @@ u_int8_t n;
 size_t n_size;
 u_int8_t e;
 size_t e_size;
+
+// --- Web Server ---
+WebServer server(80);
+
+// --- Global Variable to store the chosen file ---
+String chosenFileName = "None";
 
 // AES 加密/解密相關 (假設 AES-256-GCM)
 #define AES_KEY_SIZE 256
@@ -74,6 +81,148 @@ bool performRegistration(const String& uuid, const String& passphrase,
                          uint8_t* e_out_bytes, size_t max_e_len, size_t& e_len_out);
 void clearSensitiveData();
 
+// --- WebServer Shit ---
+void handleRoot() {
+  // Using a C++ Raw String Literal for HTML and embedded JavaScript
+  String htmlTemplate = R"HTML_PAGE(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ESP32 File Selector</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+    h1 { color: #007bff; }
+    .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    label { display: block; margin-bottom: 8px; font-weight: bold; }
+    select, input[type='submit'] { padding: 10px; margin-bottom: 20px; border-radius: 4px; border: 1px solid #ddd; width: calc(100% - 22px); }
+    input[type='submit'] { background-color: #28a745; color: white; cursor: pointer; width: auto; }
+    input[type='submit']:hover { background-color: #218838; }
+    .status { margin-top: 20px; padding: 10px; background-color: #e9ecef; border-left: 5px solid #007bff; }
+    #api_status { margin-bottom: 15px; font-style: italic; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>ESP32 File Selector</h1>
+    <p>Requesting file list for UUID: <strong>%%DEVICE_UUID_DISPLAY%%</strong></p>
+    <div id="api_status">Fetching list from API...</div>
+
+    <form method="POST" action="/selectFile">
+      <label for="file_select">Choose a file:</label>
+      <select name="selected_file_name" id="file_select" required>
+        <option value="" disabled selected>Loading files...</option>
+      </select><br><br>
+      <input type="submit" value="Select This File">
+    </form>
+
+    <div class="status">Lastly chosen file: <strong>%%CHOSEN_FILE_NAME%%</strong></div>
+
+    <script>
+      const R_UUID = '%%DEVICE_UUID_JS%%';
+      const R_API_HOST = '%%PYTHON_API_HOST_JS%%';
+      const R_API_PORT = %%PYTHON_API_PORT_JS%%; // This will be a number, so no quotes in JS
+      const R_API_ENDPOINT = '%%PYTHON_API_ENDPOINT_JS%%';
+
+      document.addEventListener('DOMContentLoaded', function() {
+        const selectElement = document.getElementById('file_select');
+        const apiStatusElement = document.getElementById('api_status');
+        const apiUrl = `http://${R_API_HOST}:${R_API_PORT}${R_API_ENDPOINT}`;
+
+        console.log("Attempting to fetch from: " + apiUrl + " with UUID: " + R_UUID);
+
+        fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uuid: R_UUID })
+        })
+        .then(response => {
+          if (!response.ok) {
+            return response.text().then(text => { 
+              // Try to parse as JSON for a structured error message from API
+              try {
+                  const errData = JSON.parse(text);
+                  throw new Error(`API Error ${response.status}: ${errData.error || errData.message || text}`);
+              } catch (e) {
+                  throw new Error(`API Error ${response.status}: ${text}`);
+              }
+            });
+          }
+          return response.json();
+        })
+        .then(data => {
+          console.log("API Response Data:", data);
+          selectElement.innerHTML = ''; // Clear loading/error options
+          if (data.files && data.files.length > 0) {
+            data.files.forEach(fileName => {
+              const option = document.createElement('option');
+              option.value = fileName;
+              option.textContent = fileName;
+              selectElement.appendChild(option);
+            });
+            apiStatusElement.textContent = 'File list loaded successfully.';
+            selectElement.disabled = false;
+          } else {
+            const message = data.message || 'No files found for this UUID or API returned an empty list.';
+            selectElement.innerHTML = `<option value="" disabled selected>${message}</option>`;
+            apiStatusElement.textContent = message;
+            selectElement.disabled = true;
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching file list:', error);
+          apiStatusElement.textContent = 'Error fetching file list: ' + error.message;
+          selectElement.innerHTML = '<option value="" disabled selected>Error loading files.</option>';
+          selectElement.disabled = true;
+        });
+      });
+    </script>
+  </div>
+</body>
+</html>
+)HTML_PAGE";
+
+  String htmlOutput = htmlTemplate; // Create a mutable copy
+
+  // Replace placeholders with actual values
+  htmlOutput.replace("%%CHOSEN_FILE_NAME%%", chosenFileName);
+  htmlOutput.replace("%%DEVICE_UUID_DISPLAY%%", String(userUUID));
+  htmlOutput.replace("%%DEVICE_UUID_JS%%", String(userUUID));
+  htmlOutput.replace("%%PYTHON_API_HOST_JS%%", String(dataServerAddress));
+  htmlOutput.replace("%%PYTHON_API_PORT_JS%%", String(dataPort)); // Converts int to String
+  htmlOutput.replace("%%PYTHON_API_ENDPOINT_JS%%", String(dataGetListEndpoint));
+
+  server.send(200, "text/html", htmlOutput);
+}
+
+void SendAndFlash(){
+  String s = runSecureDataRetrieval();
+  if(s != ""){
+    int sz = s.length();
+    for(int i = 0 ; i < sz ; ++i){
+      if(s[i] == '1') digitalWrite(led_pin, HIGH);
+      else digitalWrite(led_pin, LOW);
+      delay(100);
+    }
+  }
+}
+
+void handleFileSelection() {
+  if (server.hasArg("selected_file_name")) {
+    chosenFileName = server.arg("selected_file_name");
+    Serial.print("File selected by user: ");
+    Serial.println(chosenFileName);
+    SendAndFlash();
+    delay(1000);
+    server.sendHeader("Location", "/");
+    server.send(303);
+    return;
+  }
+  server.send(400, "text/plain", "400: Bad Request - No file selected");
+}
+
+void handleNotFound() {
+  server.send(404, "text/plain", "404: Not found");
+}
 // --- Arduino 標準函數 ---
 void setup() {
   Serial.begin(115200);
@@ -87,7 +236,11 @@ void setup() {
     while (true);
   }
   Serial.println("WiFi Connected.");
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/selectFile", HTTP_POST, handleFileSelection);
+  server.onNotFound(handleNotFound);
 
+  server.begin();
   if (!initializeRandomGenerator()) {
       Serial.println("Failed to initialize mbedtls random generator. Halting.");
       while(true);
@@ -99,19 +252,13 @@ void setup() {
   }
   delay(500);
 }
+
 int prev_state=0, curr_state=0;
 void loop() {
+  server.handleClient();
   curr_state = digitalRead(btn_pin);
   if(curr_state==LOW && prev_state == HIGH){
-    String s = runSecureDataRetrieval();
-    if(s != ""){
-      int sz = s.length();
-      for(int i = 0 ; i < sz ; ++i){
-        if(s[i] == '1') digitalWrite(led_pin, HIGH);
-        else digitalWrite(led_pin, LOW);
-        delay(100);
-      }
-    }
+    
   }
   prev_state = curr_state;
 }
@@ -259,6 +406,7 @@ bool fetchDataFromServer(const String& uuid, const String& token, String& encKey
   http.addHeader("Content-Type", "application/json");
 
   DynamicJsonDocument doc(512); // 調整 JSON 文檔大小
+  doc["file_name"] = chosenFileName;
   doc["uuid"] = uuid;
   doc["token"] = token;
   String requestBody;
