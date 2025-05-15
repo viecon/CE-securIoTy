@@ -67,6 +67,9 @@ def get_morse():
 
     if not name:
         return "File name not provided", 400
+
+    if uuid not in files:
+        return "UUID not found", 404
     target = next(x for x in files[uuid] if x.file_name == name)
 
     return jsonify({"encryptedKey": target.key, "encryptedFile": target.file})
@@ -78,6 +81,9 @@ def get_list():
     uuid = data.get("uuid")
     app.logger.info(f"UUID: {uuid}")
     app.logger.info(f"Files: {files}")
+
+    if uuid not in files:
+        files[uuid] = []
     return jsonify({"files": [i.file_name for i in files[uuid]]})
 
 
