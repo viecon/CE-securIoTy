@@ -4,6 +4,8 @@ import base64
 from flask import Flask, request, jsonify
 from Crypto.Util.number import getPrime, long_to_bytes, bytes_to_long
 from Crypto.Hash import SHA256
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_v1_5
 
 app = Flask(__name__)
 
@@ -34,11 +36,11 @@ def register():
     uuids.add(uuid)
     passphrases[uuid] = passphrase
 
-    tmp_p = getPrime(512)
-    tmp_q = getPrime(512)
-    tmp_n = tmp_p * tmp_q
-    tmp_e = 65537
-    tmp_d = pow(tmp_e, -1, (tmp_p - 1) * (tmp_q - 1))
+    key = RSA.generate(1024, e=65537)
+
+    tmp_n = key.n
+    tmp_e = key.e
+    tmp_d = key.d
 
     hex_n = hex(tmp_n)[2:]
     hex_e = hex(tmp_e)[2:]
@@ -118,14 +120,17 @@ def decrypt():
     if passphrase != passphrases[uuid]:
         return jsonify({"error": "Invalid passphrase"}), 403
 
-    encrypted_key = bytes_to_long(base64.b64decode(encrypted_key_base64.encode()))
+    encrypted_key = base64.b64decode(encrypted_key_base64.encode())
 
     n_hex, d_hex = private_keys[uuid]
     n = int(n_hex, 16)
     d = int(d_hex, 16)
     app.logger.info(f"UUID: {uuid}, n: {n}, d: {d}")
-    decrypted_key_long = pow(encrypted_key, d, n)
-    decrypted_key = base64.b64encode(long_to_bytes(decrypted_key_long)).decode("utf-8")
+    print(len(encrypted_key))
+    decryptor = PKCS1_v1_5.new(RSA.construct((n, 65537, d)))
+    decrypted_key_byte = decryptor.decrypt(encrypted_key, sentinel=object())
+
+    decrypted_key = base64.b64encode(decrypted_key_byte).decode("utf-8")
     app.logger.info(f"decryptedKey: {decrypted_key}")
     valid_token.remove((uuid, token))
     app.logger.info(f"UUID: {uuid}, Token: {token} is used")
