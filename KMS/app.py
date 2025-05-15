@@ -18,6 +18,7 @@ valid_token = set()
 
 @app.route("/api/registration", methods=["POST"])
 def register():
+    app.logger.info(f"Request: {request.data}")
     request_data = request.get_json()
     if not request_data:
         return jsonify({"error": "Invalid input"}), 400
@@ -44,7 +45,7 @@ def register():
     hex_d = hex(tmp_d)[2:]
 
     public_keys[uuid] = (hex_n, hex_e)
-    private_keys[uuid] = (hex_e, hex_d)
+    private_keys[uuid] = (hex_n, hex_d)
     app.logger.info(
         f"UUID: {uuid}, Public Key: (n: {hex_n}, e: {hex_e}), Private Key: (e: {hex_e}, d: {hex_d})"
     )
@@ -60,23 +61,24 @@ def verify():
     token = request_data.get("token")
 
     if not uuid or not token:
-        return 400
+        return "", 400
 
     if uuid not in uuids:
-        return 404
+        return "", 404
 
     if (uuid, token) not in valid_token:
-        return 403
+        return "", 403
 
     app.logger.info(f"UUID: {uuid}, Token: {token} is valid")
-    return 200
+    return "", 200
 
 
-@app.route("/api/token", methods=["GET"])
+@app.route("/api/token", methods=["POST"])
 def get_token():
+    app.logger.info(f"Request: {request.data}")
     request_data = request.get_json()
     if not request_data:
-        return 400
+        return "", 400
     uuid = request_data.get("uuid")
     passphrase = request_data.get("passphrase")
 
@@ -91,7 +93,7 @@ def get_token():
     valid_token.add((uuid, token))
 
     app.logger.info(f"UUID: {uuid}, Token: {token} generated")
-    return jsonify({"token": token})
+    return jsonify({"token": token}), 200
 
 
 @app.route("/api/decrypt", methods=["POST"])
@@ -102,7 +104,7 @@ def decrypt():
     uuid = request_data.get("uuid")
     token = request_data.get("token")
     passphrase = request_data.get("passphrase")
-    encrypted_key_base64 = request_data.get("encryptedKey")
+    encrypted_key_base64: str = request_data.get("encryptedKey")
 
     if not uuid or not token or not passphrase or not encrypted_key_base64:
         return (
@@ -116,17 +118,18 @@ def decrypt():
     if passphrase != passphrases[uuid]:
         return jsonify({"error": "Invalid passphrase"}), 403
 
-    encrypted_key = bytes_to_long(base64.b64decode(encrypted_key_base64))
+    encrypted_key = bytes_to_long(base64.b64decode(encrypted_key_base64.encode()))
 
     n_hex, d_hex = private_keys[uuid]
     n = int(n_hex, 16)
     d = int(d_hex, 16)
+    app.logger.info(f"UUID: {uuid}, n: {n}, d: {d}")
     decrypted_key_long = pow(encrypted_key, d, n)
-    decrypted_key = base64.encode(long_to_bytes(decrypted_key_long))
-
+    decrypted_key = base64.b64encode(long_to_bytes(decrypted_key_long)).decode("utf-8")
+    app.logger.info(f"decryptedKey: {decrypted_key}")
     valid_token.remove((uuid, token))
     app.logger.info(f"UUID: {uuid}, Token: {token} is used")
-    return jsonify({"decryptedKey": decrypted_key})
+    return jsonify({"decryptedSenderKey": decrypted_key})
 
 
 @app.route("/api/publicKey", methods=["POST"])
