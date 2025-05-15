@@ -44,11 +44,12 @@ def set_morse():
 
     if not verify_device(uuid, token):
         return "Unauthorized device", 403
+    if not file_name or not uuids or not keys or not code:
+        return "Missing parameters", 400
     for i in range(len(uuids)):
         if uuids[i] not in files:
             files[uuids[i]] = []
         files[uuids[i]].append(EncryptedData(file_name, keys[i], code))
-
     app.logger.info(f"UUID: {uuid}, UUIDS:{uuids},\n Keys: {keys}, Code: {code}")
 
     return "OK", 200
@@ -64,7 +65,9 @@ def get_morse():
     if not verify_device(uuid, token):
         return "Unauthorized device", 403
 
-    target = files[uuid].find(lambda x: x.file_name == name)
+    if not name:
+        return "File name not provided", 400
+    target = next(x for x in files[uuid] if x.file_name == name)
 
     return jsonify({"encryptedKey": target.key, "encryptedFile": target.file})
 
@@ -73,7 +76,8 @@ def get_morse():
 def get_list():
     data = request.get_json()
     uuid = data.get("uuid")
-
+    app.logger.info(f"UUID: {uuid}")
+    app.logger.info(f"Files: {files}")
     return jsonify({"files": [i.file_name for i in files[uuid]]})
 
 
