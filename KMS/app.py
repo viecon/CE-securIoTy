@@ -45,6 +45,9 @@ def register():
 
     public_keys[uuid] = (hex_n, hex_e)
     private_keys[uuid] = (hex_e, hex_d)
+    app.logger.info(
+        f"UUID: {uuid}, Public Key: (n: {hex_n}, e: {hex_e}), Private Key: (e: {hex_e}, d: {hex_d})"
+    )
     return jsonify({"n": hex_n, "e": hex_e})
 
 
@@ -65,6 +68,7 @@ def verify():
     if (uuid, token) not in valid_token:
         return 403
 
+    app.logger.info(f"UUID: {uuid}, Token: {token} is valid")
     return 200
 
 
@@ -85,6 +89,8 @@ def get_token():
 
     token = SHA256.new((str(time.time()) + uuid + passphrase).encode()).hexdigest()
     valid_token.add((uuid, token))
+
+    app.logger.info(f"UUID: {uuid}, Token: {token} generated")
     return jsonify({"token": token})
 
 
@@ -119,7 +125,7 @@ def decrypt():
     decrypted_key = base64.encode(long_to_bytes(decrypted_key_long))
 
     valid_token.remove((uuid, token))
-
+    app.logger.info(f"UUID: {uuid}, Token: {token} is used")
     return jsonify({"decryptedKey": decrypted_key})
 
 
@@ -139,6 +145,7 @@ def get_public_key():
     if len(ns) != len(queries):
         return jsonify({"error": "Some UUIDs not found"}), 404
 
+    app.logger.info(f"UUIDs: {queries}, Public Keys: {ns, es}")
     return jsonify({"ns": ns, "es": es})
 
 
