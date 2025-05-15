@@ -2,12 +2,14 @@ import time
 import base64
 
 from flask import Flask, request, jsonify
-from Crypto.Util.number import getPrime, long_to_bytes, bytes_to_long
+from flask_cors import CORS
 from Crypto.Hash import SHA256
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_v1_5
 
 app = Flask(__name__)
+CORS(app)
+
 
 public_keys = {}
 private_keys = {}

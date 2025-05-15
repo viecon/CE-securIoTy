@@ -59,7 +59,7 @@ def get_morse():
     data = request.get_json()
     uuid = data.get("uuid")
     token = data.get("token")
-    name = data.get("name")
+    name = data.get("file_name")
     app.logger.info(f"UUID: {uuid}, Token: {token}")
     if not verify_device(uuid, token):
         return "Unauthorized device", 403
