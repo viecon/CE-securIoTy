@@ -204,6 +204,7 @@ void SendAndFlash(){
       delay(100);
     }
   }
+  digitalWrite(led_pin, LOW);
 }
 
 void handleFileSelection() {
