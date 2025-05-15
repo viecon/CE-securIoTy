@@ -3,6 +3,7 @@ import time
 
 from dataclasses import dataclass
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 
 
 @dataclass
@@ -13,6 +14,7 @@ class EncryptedData:
 
 
 app = Flask(__name__)
+CORS(app)
 
 # morse code per device
 files = {}
