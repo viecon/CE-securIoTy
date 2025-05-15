@@ -42,7 +42,7 @@ const int START_BUTTON_PIN = 4;
 const int RECORD_BUTTON_PIN = 2;
 const int LED_PIN = 13;
 
-const unsigned long SAMPLE_INTERVAL = 2000;
+const unsigned long SAMPLE_INTERVAL = 500;
 const int MAX_BITS = 8;
 
 // mbedTLS DRBG
@@ -111,7 +111,7 @@ void loop() {
     Serial.println("END");
   }
   lastState = cur;
-  delay(3000);
+  delay(1000);
 }
 
 // ===== 功能函式 =====
@@ -245,6 +245,10 @@ void collectAndSendmorseCode() {
     ka.add(k);
   d["token"] = authToken;
   d["code"] = code64;
+  time_t now;
+  time(&now);
+  String filename = String(UUID) + "_" + String(now);
+  d["file_name"] = filename;
 
   Serial.println("---- JSON Payload ----");
   serializeJsonPretty(d, Serial);
