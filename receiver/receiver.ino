@@ -16,6 +16,7 @@
 #include "mbedtls/base64.h"
 
 #define led_pin 25
+#define btn_pin 19
 // 引入必要的庫 (根據你的開發板和需求調整)
 #include <WiFi.h>         // 或者 ESP8266WiFi.h
 #include <HTTPClient.h>   // 或者 ESP8266HTTPClient.h
@@ -25,25 +26,27 @@
 const char* ssid = "ED417C";
 const char* password = "4172417@";
 
-const char* kmsServerAddress = "your-kms-server.com"; // KMS 伺服器地址
-const int kmsPort = 443; // HTTPS 預設端口
+const char* kmsServerAddress = "192.168.50.57"; // KMS 伺服器地址
+const int kmsPort = 5000; // HTTPS 預設端口
 const char* kmsRegistration = "/api/registration";
 const char* kmsTokenEndpoint = "/api/token";
-const char* kmsDecryptEndpoint = "/api/decryptKey";
+const char* kmsDecryptEndpoint = "/api/decrypt";
 
-const char* dataServerAddress = "your-data-server.com"; // 資料伺服器地址
-const int dataPort = 443;
-const char* dataFetchEndpoint = "/mousecode/get"; // 假設獲取資料的端點
+const char* dataServerAddress = "192.168.50.57"; // 資料伺服器地址
+const int dataPort = 8080;
+const char* dataFetchEndpoint = "/morsecode/get"; // 假設獲取資料的端點
 
 String userUUID = "godempty";         // 你的用戶 ID
-String userPassphrase = "VieconIsGay"; // 你的通關密語
+String userPassphrase = "114514"; // 你的通關密語
 
 
 String authToken = "";
 String encryptedSenderKey_base64 = ""; // 從資料伺服器獲取的加密的送方金鑰 (Base64)
 String encryptedFile_base64 = "";    // 從資料伺服器獲取的加密的檔案 (Base64)
-String n_base64="";
-String e_base64="";
+u_int8_t n;
+size_t n_size;
+u_int8_t e;
+size_t e_size;
 
 // AES 加密/解密相關 (假設 AES-256-GCM)
 #define AES_KEY_SIZE 256
@@ -66,7 +69,9 @@ bool getAuthTokenFromKMS(const String& uuid, const String& passphrase, String& t
 bool fetchDataFromServer(const String& uuid, const String& token, String& encKeyBase64, String& encFileBase64); // 假設伺服器返回的 encryptedFile_base64 包含 IV+Ciphertext+Tag
 bool getDecryptedSenderKeyFromKMS(const String& token, const String& uuid, const String& passphrase, const String& encryptedKeyBase64, uint8_t* decryptedKey, size_t& keyLength);
 bool decryptFileAES_GCM(const uint8_t* key, size_t keyLen, const String& encryptedFileWithIvTagBase64, String& decryptedContent);
-bool performRegistration(const String& uuid, const String& passphrase, String& n_out_base64, String& e_out_base64);
+bool performRegistration(const String& uuid, const String& passphrase,
+                         uint8_t* n_out_bytes, size_t max_n_len, size_t& n_len_out,
+                         uint8_t* e_out_bytes, size_t max_e_len, size_t& e_len_out);
 void clearSensitiveData();
 
 // --- Arduino 標準函數 ---
@@ -74,6 +79,7 @@ void setup() {
   Serial.begin(115200);
   while (!Serial);
   pinMode(led_pin,OUTPUT);
+  pinMode(btn_pin,INPUT);
   Serial.println("Initializing (HTTP, AES with mbedtls)...");
   
   if (!connectToWiFi()) {
@@ -88,52 +94,91 @@ void setup() {
   }
   Serial.println("mbedtls random generator initialized.");
 
-
-  runSecureDataRetrieval();
-}
-
-void loop() {
-  delay(60000);
-}
-
-// --- 主流程函數 ---
-void runSecureDataRetrieval() {
-  Serial.println("\n--- Starting Secure Data Retrieval Process (HTTP) ---");
-  if(!performRegistration(userUUID,userPassphrase,n_base64,e_base64)){
+  if(!performRegistration(userUUID,userPassphrase,&n,static_cast<size_t>(128),n_size,&e,12,e_size)){
     Serial.println("Failed to registration");
-    return;
   }
+  delay(500);
+}
+int prev_state=0, curr_state=0;
+void loop() {
+  curr_state = digitalRead(btn_pin);
+  if(curr_state==LOW && prev_state == HIGH){
+    String s = runSecureDataRetrieval();
+    if(s != ""){
+      int sz = s.length();
+      for(int i = 0 ; i < sz ; ++i){
+        if(s[i] == '1') digitalWrite(led_pin, HIGH);
+        else digitalWrite(led_pin, LOW);
+        delay(100);
+      }
+    }
+  }
+  prev_state = curr_state;
+}
+size_t hex_string_to_bytes(const char *hex_str, uint8_t *byte_array, size_t max_bytes) {
+    size_t hex_len = strlen(hex_str);
+    if (hex_len % 2 != 0) { // 十六進制字符串長度必須是偶數
+        Serial.println("Error: Hex string length must be even.");
+        return 0;
+    }
+    size_t byte_len = hex_len / 2;
+    if (byte_len > max_bytes) {
+        Serial.printf("Error: Hex string too long for buffer. Max %d bytes, got %d bytes.\n", max_bytes, byte_len);
+        return 0;
+    }
+
+    for (size_t i = 0; i < byte_len; i++) {
+        char hex_pair[3];
+        hex_pair[0] = hex_str[i * 2];
+        hex_pair[1] = hex_str[i * 2 + 1];
+        hex_pair[2] = '\0';
+        long val = strtol(hex_pair, NULL, 16);
+        if (val == 0 && hex_pair[0] != '0' && hex_pair[1] != '0') { 
+            if (errno == ERANGE || errno == EINVAL) {
+                Serial.printf("Error: Invalid hex character in string: %s\n", hex_pair);
+                return 0;
+            }
+        }
+        byte_array[i] = (uint8_t)val;
+    }
+    return byte_len;
+}
+// --- 主流程函數 ---
+String runSecureDataRetrieval() {
+  Serial.println("\n--- Starting Secure Data Retrieval Process (HTTP) ---");
+  
   if (!getAuthTokenFromKMS(userUUID, userPassphrase, authToken)) {
     Serial.println("Failed to get Auth Token from KMS.");
-    return;
+    return "";
   }
   Serial.print("Auth Token received: "); Serial.println(authToken);
-
+  delay(500);
   if (!fetchDataFromServer(userUUID, authToken, encryptedSenderKey_base64, encryptedFile_base64)) {
     Serial.println("Failed to fetch data from server.");
-    return;
+    return "";
   }
   Serial.println("Encrypted data and key received from server.");
-
+  delay(500);
   if (!getDecryptedSenderKeyFromKMS(authToken, userUUID, userPassphrase, encryptedSenderKey_base64, decryptedSenderKey, decryptedSenderKeyLength)) {
     Serial.println("Failed to get decrypted sender key from KMS.");
     clearSensitiveData();
-    return;
+    return "";
   }
   Serial.println("Sender key decrypted successfully.");
   if (decryptedSenderKeyLength != AES_KEY_BYTES) {
       Serial.printf("Decrypted key length mismatch! Expected %d, got %d\n", AES_KEY_BYTES, decryptedSenderKeyLength);
       clearSensitiveData();
-      return;
+      return "";
   }
 
-
+  delay(500);
   String decryptedFileContent = "";
   if (!decryptFileAES_GCM(decryptedSenderKey, decryptedSenderKeyLength, encryptedFile_base64, decryptedFileContent)) {
     Serial.println("Failed to decrypt file.");
     clearSensitiveData();
-    return;
+    return "";
   }
+  delay(1000);  
   Serial.println("File decrypted successfully!");
   Serial.println("--- Decrypted File Content ---");
   Serial.println(decryptedFileContent);
@@ -141,6 +186,7 @@ void runSecureDataRetrieval() {
 
   clearSensitiveData();
   Serial.println("--- Secure Data Retrieval Process Finished ---");
+  return decryptedFileContent;
 }
 
 // --- 輔助函數實現 ---
@@ -197,7 +243,7 @@ bool getAuthTokenFromKMS(const String& uuid, const String& passphrase, String& t
   doc["passphrase"] = passphrase;
   String requestBody;
   serializeJson(doc, requestBody);
-
+  delay(1000);
   Serial.print("KMS Auth Request: "); Serial.println(requestBody);
   int httpResponseCode = http.POST(requestBody);
 
@@ -239,17 +285,18 @@ bool fetchDataFromServer(const String& uuid, const String& token, String& encKey
   }
   http.addHeader("Content-Type", "application/json");
 
-  DynamicJsonDocument doc(256); // 調整 JSON 文檔大小
+  DynamicJsonDocument doc(512); // 調整 JSON 文檔大小
   doc["uuid"] = uuid;
   doc["token"] = token;
   String requestBody;
   serializeJson(doc, requestBody);
-
+  delay(1000);
   Serial.println("Fetching data from server...");
+  Serial.println("Body:"); Serial.println(requestBody);
   int httpResponseCode = http.POST(requestBody);
   if (httpResponseCode == HTTP_CODE_OK) {
     String payload = http.getString();
-    // Serial.print("Server Data Response: "); Serial.println(payload); // 可能很長
+    Serial.print("Server Data Response: "); Serial.println(payload); // 可能很長
     DynamicJsonDocument responseDoc(ESP.getMaxAllocHeap() / 4); // 嘗試分配較大空間，注意內存
     DeserializationError error = deserializeJson(responseDoc, payload);
     if (error) {
@@ -287,11 +334,11 @@ bool getDecryptedSenderKeyFromKMS(const String& token, const String& uuid, const
   DynamicJsonDocument doc(512);
   doc["token"] = token;
   doc["uuid"] = uuid;
-  // doc["passphrase"] = passphrase; // 再次確認是否需要
+  doc["passphrase"] = passphrase; // 再次確認是否需要
   doc["encryptedKey"] = encryptedKeyBase64;
   String requestBody;
   serializeJson(doc, requestBody);
-
+  delay(500);
   Serial.print("KMS Decrypt Request: "); Serial.println(requestBody);
   int httpResponseCode = http.POST(requestBody);
 
@@ -425,11 +472,12 @@ bool decryptFileAES_GCM(const uint8_t* key, size_t keyLen, const String& encrypt
 }
 
 
-bool performRegistration(const String& uuid, const String& passphrase, String& n_out_base64, String& e_out_base64) {
+bool performRegistration(const String& uuid, const String& passphrase,
+                         uint8_t* n_out_bytes, size_t max_n_len, size_t& n_len_out,
+                         uint8_t* e_out_bytes, size_t max_e_len, size_t& e_len_out) {
   if (WiFi.status() != WL_CONNECTED) return false;
 
   HTTPClient http;
-  // 假設 kmsRegistration 端點也是 HTTP (不安全)
   String serverPath = "http://" + String(kmsServerAddress) + ":" + String(kmsPort) + String(kmsRegistration);
   Serial.print("KMS Registration URL: "); Serial.println(serverPath);
 
@@ -441,17 +489,17 @@ bool performRegistration(const String& uuid, const String& passphrase, String& n
 
   DynamicJsonDocument doc(256);
   doc["uuid"] = uuid;
-  doc["passphrase"] = passphrase; // 假設註冊也需要通關密語
+  doc["passphrase"] = passphrase;
   String requestBody;
   serializeJson(doc, requestBody);
-
+  delay(500);
   Serial.print("KMS Registration Request: "); Serial.println(requestBody);
-  int httpResponseCode = http.POST(requestBody); // 假設註冊是 POST
+  int httpResponseCode = http.POST(requestBody);
 
-  if (httpResponseCode == HTTP_CODE_OK || httpResponseCode == HTTP_CODE_CREATED) { // 註冊成功可能是 200 或 201
+  if (httpResponseCode == HTTP_CODE_OK || httpResponseCode == HTTP_CODE_CREATED) {
     String payload = http.getString();
     Serial.print("KMS Registration Response: "); Serial.println(payload);
-    DynamicJsonDocument responseDoc(512); // n 可能比較長，調整大小
+    DynamicJsonDocument responseDoc(1024); 
     DeserializationError error = deserializeJson(responseDoc, payload);
     if (error) {
       Serial.print("deserializeJson() failed for registration: ");
@@ -460,8 +508,36 @@ bool performRegistration(const String& uuid, const String& passphrase, String& n
       return false;
     }
     if (responseDoc.containsKey("n") && responseDoc.containsKey("e")) {
-      n_out_base64 = responseDoc["n"].as<String>();
-      e_out_base64 = responseDoc["e"].as<String>();
+      String hex_n_str = responseDoc["n"].as<String>();
+      String hex_e_str = responseDoc["e"].as<String>();
+
+      Serial.print("Received Hex N: "); Serial.println(hex_n_str);
+      Serial.print("Received Hex E: "); Serial.println(hex_e_str);
+
+      n_len_out = hex_string_to_bytes(hex_n_str.c_str(), n_out_bytes, max_n_len);
+      if (n_len_out == 0 && hex_n_str.length() > 0) { // 轉換失敗
+        Serial.println("Failed to convert hex N to bytes.");
+        http.end();
+        return false;
+      }
+
+      e_len_out = hex_string_to_bytes(hex_e_str.c_str(), e_out_bytes, max_e_len);
+       if (e_len_out == 0 && hex_e_str.length() > 0) { // 轉換失敗
+        Serial.println("Failed to convert hex E to bytes.");
+        http.end();
+        return false;
+      }
+      
+      // 如果 e_len_out 為 0 且 hex_e_str 為空，也可能是有問題的，取決於e的預期
+      // 通常 e 很短，例如 0x010001 (65537)，十六進制是 "10001"
+
+      Serial.printf("Converted N bytes (len %d): ", n_len_out);
+      for(size_t i=0; i<n_len_out; ++i) Serial.printf("%02X ", n_out_bytes[i]);
+      Serial.println();
+      Serial.printf("Converted E bytes (len %d): ", e_len_out);
+      for(size_t i=0; i<e_len_out; ++i) Serial.printf("%02X ", e_out_bytes[i]);
+      Serial.println();
+
       http.end();
       return true;
     } else {
