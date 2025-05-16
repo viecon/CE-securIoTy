@@ -201,7 +201,7 @@ void SendAndFlash(){
     for(int i = 0 ; i < sz ; ++i){
       if(s[i] == '1') digitalWrite(led_pin, HIGH);
       else digitalWrite(led_pin, LOW);
-      delay(100);
+      delay(300);
     }
   }
   digitalWrite(led_pin, LOW);
