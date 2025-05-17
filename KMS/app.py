@@ -50,9 +50,7 @@ def register():
 
     public_keys[uuid] = (hex_n, hex_e)
     private_keys[uuid] = (hex_n, hex_d)
-    app.logger.info(
-        f"UUID: {uuid}, Public Key: (n: {hex_n}, e: {hex_e}), Private Key: (e: {hex_e}, d: {hex_d})"
-    )
+    app.logger.info(f"UUID: {uuid}, Public Key: (n: {hex_n}, e: {hex_e})")
     return jsonify({"n": hex_n, "e": hex_e})
 
 
@@ -127,8 +125,7 @@ def decrypt():
     n_hex, d_hex = private_keys[uuid]
     n = int(n_hex, 16)
     d = int(d_hex, 16)
-    app.logger.info(f"UUID: {uuid}, n: {n}, d: {d}")
-    print(len(encrypted_key))
+
     decryptor = PKCS1_v1_5.new(RSA.construct((n, 65537, d)))
     decrypted_key_byte = decryptor.decrypt(encrypted_key, sentinel=object())
 
