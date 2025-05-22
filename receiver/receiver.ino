@@ -9,41 +9,41 @@
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/rsa.h"
 #include "mbedtls/aes.h"
-#include "mbedtls/gcm.h" // 如果使用 AES-GCM 模式
-#include "mbedtls/md.h"  // 如果需要生成隨機數或進行哈希
+#include "mbedtls/gcm.h" // AES-GCM 
+#include "mbedtls/md.h"  
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/base64.h"
 
 #define led_pin 25
 #define btn_pin 19
-// 引入必要的庫 (根據你的開發板和需求調整)
-#include <WiFi.h>         // 或者 ESP8266WiFi.h
-#include <HTTPClient.h>   // 或者 ESP8266HTTPClient.h
-#include <ArduinoJson.h>  // 用於解析和生成 JSON
+
+#include <WiFi.h>         
+#include <HTTPClient.h>   
+#include <ArduinoJson.h>  
 #include <WebServer.h>
 
 // --- 全域變數和常量 ---
 const char* ssid = "ED417C";
 const char* password = "4172417@";
 
-const char* kmsServerAddress = "192.168.50.57"; // KMS 伺服器地址
-const int kmsPort = 5000; // HTTPS 預設端口
+const char* kmsServerAddress = "192.168.50.57"; 
+const int kmsPort = 5000; 
 const char* kmsRegistration = "/api/registration";
 const char* kmsTokenEndpoint = "/api/token";
 const char* kmsDecryptEndpoint = "/api/decrypt";
 
-const char* dataServerAddress = "192.168.50.57"; // 資料伺服器地址
+const char* dataServerAddress = "192.168.50.57"; 
 const int dataPort = 8080;
-const char* dataFetchEndpoint = "/morsecode/get"; // 假設獲取資料的端點
+const char* dataFetchEndpoint = "/morsecode/get"; 
 const char* dataGetListEndpoint = "/getList";
 
-String userUUID = "godempty";         // 你的用戶 ID
-String userPassphrase = "114514"; // 你的通關密語
+String userUUID = "godempty";        
+String userPassphrase = "114514"; 
 
 String authToken = "";
-String encryptedSenderKey_base64 = ""; // 從資料伺服器獲取的加密的送方金鑰 (Base64)
-String encryptedFile_base64 = "";    // 從資料伺服器獲取的加密的檔案 (Base64)
+String encryptedSenderKey_base64 = ""; 
+String encryptedFile_base64 = "";   
 u_int8_t n;
 size_t n_size;
 u_int8_t e;
@@ -52,24 +52,23 @@ size_t e_size;
 // --- Web Server ---
 WebServer server(80);
 
-// --- Global Variable to store the chosen file ---
 String chosenFileName = "None";
 
-// AES 加密/解密相關 (假設 AES-256-GCM)
+// AES 加密/解密相關 (AES-256-GCM)
 #define AES_KEY_SIZE 256
 #define AES_KEY_BYTES (AES_KEY_SIZE / 8)
-#define GCM_IV_LENGTH 12 // GCM 推薦的 IV 長度
-#define GCM_TAG_LENGTH 16 // GCM 認證標籤長度
+#define GCM_IV_LENGTH 12 
+#define GCM_TAG_LENGTH 16
 
 uint8_t decryptedSenderKey[AES_KEY_BYTES];
 size_t decryptedSenderKeyLength = 0;
 
-// mbedtls 隨機數生成器上下文 (如果需要生成 IV)
+
 mbedtls_entropy_context entropy;
 mbedtls_ctr_drbg_context ctr_drbg;
-const char *personalization = "my-aes-gcm-app"; // 個性化字符串
+const char *personalization = "my-aes-gcm-app";
 
-// --- 函數聲明 (Function Prototypes) ---
+
 bool connectToWiFi();
 bool initializeRandomGenerator();
 bool getAuthTokenFromKMS(const String& uuid, const String& passphrase, String& token);
@@ -181,9 +180,8 @@ void handleRoot() {
 </html>
 )HTML_PAGE";
 
-  String htmlOutput = htmlTemplate; // Create a mutable copy
+  String htmlOutput = htmlTemplate; 
 
-  // Replace placeholders with actual values
   htmlOutput.replace("%%CHOSEN_FILE_NAME%%", chosenFileName);
   htmlOutput.replace("%%DEVICE_UUID_DISPLAY%%", String(userUUID));
   htmlOutput.replace("%%DEVICE_UUID_JS%%", String(userUUID));
@@ -192,19 +190,6 @@ void handleRoot() {
   htmlOutput.replace("%%PYTHON_API_ENDPOINT_JS%%", String(dataGetListEndpoint));
 
   server.send(200, "text/html", htmlOutput);
-}
-
-void SendAndFlash(){
-  String s = runSecureDataRetrieval();
-  if(s != ""){
-    int sz = s.length();
-    for(int i = 0 ; i < sz ; ++i){
-      if(s[i] == '1') digitalWrite(led_pin, HIGH);
-      else digitalWrite(led_pin, LOW);
-      delay(300);
-    }
-  }
-  digitalWrite(led_pin, LOW);
 }
 
 void handleFileSelection() {
@@ -224,7 +209,21 @@ void handleFileSelection() {
 void handleNotFound() {
   server.send(404, "text/plain", "404: Not found");
 }
-// --- Arduino 標準函數 ---
+
+// --- LED stuff ---
+void SendAndFlash(){
+  String s = runSecureDataRetrieval();
+  if(s != ""){
+    int sz = s.length();
+    for(int i = 0 ; i < sz ; ++i){
+      if(s[i] == '1') digitalWrite(led_pin, HIGH);
+      else digitalWrite(led_pin, LOW);
+      delay(300);
+    }
+  }
+  digitalWrite(led_pin, LOW);
+}
+
 void setup() {
   Serial.begin(115200);
   while (!Serial);
@@ -264,7 +263,8 @@ void loop() {
   prev_state = curr_state;
 }
 
-// --- 主流程函數 ---
+
+// --- Main route for fetch file ---
 String runSecureDataRetrieval() {
   Serial.println("\n--- Starting Secure Data Retrieval Process (HTTP) ---");
   
@@ -310,14 +310,13 @@ String runSecureDataRetrieval() {
   return decryptedFileContent;
 }
 
-// --- 輔助函數實現 ---
 
-bool connectToWiFi() { /* 與之前版本相同 */
+bool connectToWiFi() {
   Serial.print("Connecting to WiFi SSID: ");
   Serial.println(ssid);
   WiFi.begin(ssid, password);
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) { // 嘗試連接10秒
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) { 
     delay(500);
     Serial.print(".");
     attempts++;
@@ -359,7 +358,7 @@ bool getAuthTokenFromKMS(const String& uuid, const String& passphrase, String& t
   }
   http.addHeader("Content-Type", "application/json");
 
-  DynamicJsonDocument doc(256); // 調整 JSON 文檔大小
+  DynamicJsonDocument doc(256); 
   doc["uuid"] = uuid;
   doc["passphrase"] = passphrase;
   String requestBody;
@@ -371,7 +370,7 @@ bool getAuthTokenFromKMS(const String& uuid, const String& passphrase, String& t
   if (httpResponseCode == HTTP_CODE_OK) {
     String payload = http.getString();
     Serial.print("KMS Auth Response: "); Serial.println(payload);
-    DynamicJsonDocument responseDoc(256); // 調整大小
+    DynamicJsonDocument responseDoc(256); 
     DeserializationError error = deserializeJson(responseDoc, payload);
     if (error) {
       Serial.print("deserializeJson() failed: ");
@@ -406,7 +405,7 @@ bool fetchDataFromServer(const String& uuid, const String& token, String& encKey
   }
   http.addHeader("Content-Type", "application/json");
 
-  DynamicJsonDocument doc(512); // 調整 JSON 文檔大小
+  DynamicJsonDocument doc(512); 
   doc["file_name"] = chosenFileName;
   doc["uuid"] = uuid;
   doc["token"] = token;
@@ -418,8 +417,8 @@ bool fetchDataFromServer(const String& uuid, const String& token, String& encKey
   int httpResponseCode = http.POST(requestBody);
   if (httpResponseCode == HTTP_CODE_OK) {
     String payload = http.getString();
-    Serial.print("Server Data Response: "); Serial.println(payload); // 可能很長
-    DynamicJsonDocument responseDoc(ESP.getMaxAllocHeap() / 4); // 嘗試分配較大空間，注意內存
+    Serial.print("Server Data Response: "); Serial.println(payload); 
+    DynamicJsonDocument responseDoc(ESP.getMaxAllocHeap() / 4); // If memory dead try to segment them and use SD to buffer(?)
     DeserializationError error = deserializeJson(responseDoc, payload);
     if (error) {
       Serial.print("deserializeJson() failed for data: "); Serial.println(error.c_str());
@@ -456,7 +455,7 @@ bool getDecryptedSenderKeyFromKMS(const String& token, const String& uuid, const
   DynamicJsonDocument doc(512);
   doc["token"] = token;
   doc["uuid"] = uuid;
-  doc["passphrase"] = passphrase; // 再次確認是否需要
+  doc["passphrase"] = passphrase; 
   doc["encryptedKey"] = encryptedKeyBase64;
   String requestBody;
   serializeJson(doc, requestBody);
@@ -474,13 +473,12 @@ bool getDecryptedSenderKeyFromKMS(const String& token, const String& uuid, const
       http.end();
       return false;
     }
-    if (responseDoc.containsKey("decryptedSenderKey")) { // 假設返回的是 Base64 編碼的 byte array
+    if (responseDoc.containsKey("decryptedSenderKey")) { 
       String keyBase64 = responseDoc["decryptedSenderKey"].as<String>();
       size_t decodedLen = 0;
-      // 預估解碼後的長度，確保緩衝區足夠
-      // Base64 解碼: 輸出長度約為輸入長度的 3/4
-      size_t bufferSize = keyBase64.length() * 3 / 4 + 4; // 加一點餘量
-      if (bufferSize > AES_KEY_BYTES) bufferSize = AES_KEY_BYTES; // 不要超過我們的目標金鑰長度
+
+      size_t bufferSize = keyBase64.length() * 3 / 4 + 4; // estimate
+      if (bufferSize > AES_KEY_BYTES) bufferSize = AES_KEY_BYTES;
 
       int ret = mbedtls_base64_decode(decryptedKey, bufferSize, &decodedLen, (const unsigned char*)keyBase64.c_str(), keyBase64.length());
       if (ret == 0 && decodedLen > 0) {
@@ -510,6 +508,7 @@ bool getDecryptedSenderKeyFromKMS(const String& token, const String& uuid, const
  * @param decryptedContent (輸出) 解密後的檔案內容
  * @return true 如果成功解密, false 否則
  */
+
 bool decryptFileAES_GCM(const uint8_t* key, size_t keyLen, const String& encryptedFileWithIvTagBase64, String& decryptedContent) {
   if (key == nullptr || keyLen != AES_KEY_BYTES || encryptedFileWithIvTagBase64.isEmpty()) {
     Serial.println("decryptFileAES_GCM: Invalid parameters.");
@@ -519,10 +518,10 @@ bool decryptFileAES_GCM(const uint8_t* key, size_t keyLen, const String& encrypt
   mbedtls_gcm_context gcm_ctx;
   int ret;
 
-  // 1. Base64 解碼 encryptedFileWithIvTagBase64
+  // 1. encryptedFileWithIvTagBase64
   size_t b64DecodedLen = 0;
   size_t b64InputLen = encryptedFileWithIvTagBase64.length();
-  // 預估解碼後長度
+
   size_t maxDecodedBufSize = b64InputLen * 3 / 4 + 4;
   unsigned char* combined_data = (unsigned char*)malloc(maxDecodedBufSize);
   if (!combined_data) {
@@ -539,7 +538,7 @@ bool decryptFileAES_GCM(const uint8_t* key, size_t keyLen, const String& encrypt
   }
 
   // 2. 分離 IV, Ciphertext, Tag
-  // 假設順序是 IV (12 bytes) | Ciphertext (variable) | Tag (16 bytes)
+  // IV (12 bytes) | Ciphertext (variable) | Tag (16 bytes)
   const unsigned char* iv = combined_data;
   const unsigned char* ciphertext = combined_data + GCM_IV_LENGTH;
   size_t ciphertext_len = b64DecodedLen - GCM_IV_LENGTH - GCM_TAG_LENGTH;
@@ -574,12 +573,12 @@ bool decryptFileAES_GCM(const uint8_t* key, size_t keyLen, const String& encrypt
 
   ret = mbedtls_gcm_auth_decrypt(&gcm_ctx, ciphertext_len,
                                  iv, GCM_IV_LENGTH,
-                                 NULL, 0, // Additional Authenticated Data (AAD), 如果有的話
+                                 NULL, 0, // AAD
                                  tag, GCM_TAG_LENGTH,
                                  ciphertext, plaintext_buf);
 
-  if (ret == 0) { // 解密和認證成功
-    plaintext_buf[ciphertext_len] = '\0'; // 添加字符串結束符
+  if (ret == 0) { 
+    plaintext_buf[ciphertext_len] = '\0'; 
     decryptedContent = String((char*)plaintext_buf);
     Serial.println("AES-GCM decryption successful.");
   } else {
@@ -656,11 +655,8 @@ void clearSensitiveData() {
   authToken = "";
   encryptedSenderKey_base64 = "";
   encryptedFile_base64 = "";
-  // 更徹底的做法是覆蓋數組內容
   for (size_t i = 0; i < sizeof(decryptedSenderKey); ++i) {
     decryptedSenderKey[i] = 0x00;
   }
   decryptedSenderKeyLength = 0;
-  // userPassphrase 也應該在使用後考慮清除，但如果每次都需要輸入則不同
-  // userPassphrase = ""; // 取決於你的應用邏輯
 }
